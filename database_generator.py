@@ -20,7 +20,13 @@ database_generator.py
     hands and their respective values: pokervals?.shelf for 5, 6, and 7 hands.
 """
 
+if __name__ == '__main__':
+    import logging
+    logging.basicConfig(level=logging.DEBUG)
+
 import poker,pickle,sys,shelve,anydbm,time
+from poker_globals import *
+
 global pokerval_cache,pokerval_cachehits,pokerval_cachemisses,weightedcomparehands_cache,weightedcomparehands_cachehits
 
 try:
@@ -50,13 +56,9 @@ def clear_pokerval_cache():
     weightedcomparehands_cachehits=0
 clear_pokerval_cache()
 
-def calculate_pokerval(_cards, useReader):
+def calculate_pokerval(_cards):
     global pokerval_cache,pokerval_cachehits,pokerval_cachemisses
-    cards = _cards
-    cards.sort()
-    cards = poker.normalize_suits(cards)
-    cards.sort()
-
+    cards = poker.normalize_cards(_cards)
     try:
         index = poker.make_stringindex(cards)
         try:
@@ -72,12 +74,7 @@ def calculate_pokerval(_cards, useReader):
             pokerval = poker.PokervalCalculator(cards).getpokerval()
         elif len(cards) > 5:
             for fivecards in xuniqueCombinations(cards,5):
-                #~ print poker.format_cards(fivecards)
-                if useReader:
-                    hand = poker.PokervalReader(fivecards)
-                else:
-                    hand = poker.PokervalCalculator(fivecards)
-                #~ print fivecards, hand
+                hand = poker.PokervalReader(fivecards)
                 pokerval = max(pokerval, hand.getpokerval())
         else:
             raise ValueError("Not enough cards!")
@@ -101,16 +98,16 @@ def regenerate_database():
     possiblehands = {
         5: (2598960, 160537),
         6: (20358520, 1250964),
-        7: (133784560, 421),
+        7: (133784560,  210080),
     }
     
     allCombinations = sum([y[0] for (x,y) in possiblehands.iteritems()])
     
     print """
     
-- About to generate all 5, 6, and 7 card hands.  It takes a while
-(there are %d possible combinations) so find something else to do for the night.
-If you kill the process at anytime, no problem, you can resume it where it left off 
+About to generate all 5, 6, and 7 card hands.  It takes a while
+(there are %d possible combinations) so find something else to do for a bit.
+If you kill the process at any time, no problem, you can resume it where it left off 
 just by rerunning this method.
     
 Let's begin...
@@ -120,7 +117,6 @@ Let's begin...
     for numcards in range(5, 8):
         i = 0
         
-        useReader = numcards != 5
         clear_pokerval_cache()
         start_time = time.clock()
         db = shelve.open("pokervals"+str(numcards)+".shelf",protocol=2)
@@ -129,7 +125,8 @@ Let's begin...
         except KeyError:
             num_computed = 0
         (total, uniqueindices) = possiblehands[numcards]
-        if len(db) != uniqueindices:
+        
+        if len(db) != uniqueindices + 1: # +1 cause we store the counter in the database too, for restarting.
             print "Generating all "+str(total)+" possible "+str(numcards)+" card hands... "
             for cards in xuniqueCombinations(deck, numcards):
                 i=i+1
@@ -138,14 +135,19 @@ Let's begin...
                 if i<num_computed:  
                     continue
                     
-                (idx,pokerval) = calculate_pokerval(cards, useReader)
+                (idx,pokerval) = calculate_pokerval(cards)
                 db[idx] = pokerval
                 if i%100000 == 0:
                     now = time.clock()
                     print "%d%% of %d-card hands complete.  %d processed, %d unique, %.2fm elapsed (%.2fm total)." % (i*100.0/total, numcards, i, len(db), (now - start_time)/60.0, (now - start_time_all)/60.0)
+                    
+                    s = format_cards(cards) + ' val: '
+                    print "\tLast Hand: ", s + format_pokerval(pokerval)
+                    
                     db["num_computed"] = i
             print len(db)
         
         print "Your %d-card database is complete!  It has %d complete hands." % (numcards, len(db))
         
-regenerate_database()
+if __name__ == '__main__':
+    regenerate_database()

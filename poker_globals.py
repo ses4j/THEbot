@@ -1,3 +1,25 @@
+""" 
+THEbot, a Texas Hold'em poker software library.
+    Copyright (C) 2011  Scott Stafford
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+poker_globals.py
+    This script contains some constants and a few basic util methods.
+    It's intended to be imported into the global namespace of the module.
+"""
+
 # actions
 CALL = 1
 RAIS = 2
@@ -180,7 +202,6 @@ def format_pokerval(pokerval):
     if ONEPAIR & pokerval: s+=' ONEPAIR'
 
     return s
-
 
 def cvt_to_rank(i):
     """ Convert a thing to a rank, int from 2-14. """

@@ -20,8 +20,7 @@ poker.py
     printing, etc.
 """
 
-import pickle,copy,logging,time,sys,shelve,traceback,bsddb,threading,doctest
-import hotshot, hotshot.stats
+import pickle,copy,logging,time,sys,shelve,traceback,threading,doctest
 
 log = logging.getLogger("poker.poker")
 log.setLevel(logging.INFO)
@@ -97,10 +96,7 @@ def getpokerval(_cards,pokerval_db=None):
         return None
         
     global pokerval_cache,pokerval_cachehits,pokerval_cachemisses
-    cards = _cards
-    cards.sort()
-    cards = normalize_suits(cards)
-    cards.sort()
+    cards = normalize_cards(_cards)
 
     try:
         index = make_stringindex(cards)
@@ -126,7 +122,7 @@ def getpokerval(_cards,pokerval_db=None):
             else:
                 raise ValueError("what did you call this with? : index=%s, len=%d"%(index,len(index)))
 
-            #~ ### hack cause i fucked up low-Ace straights in the generated db
+            #~ ### hack cause i messed up low-Ace straights in the generated db
             #~ if (pokerval & STRAIGHT):
                 #~ if (pokerval & 0xFFFFF) == 0x54321:
                     #~ if cards[4][0]==6:
@@ -151,6 +147,15 @@ def getpokerval(_cards,pokerval_db=None):
     log.debug("[pokerval] %s=%s"%(format_cards(cards),format_pokerval(pokerval)))
     return pokerval
 
+def normalize_cards(in_cards):
+    """ Normalize a hand by sorting it and tweaking suits in ways that don't 
+    affect it's poker value, for the purpose of increasing cache hits and shrinking
+    database sizes. """
+    cards = sorted(in_cards)
+    cards = normalize_suits(cards)
+    cards.sort()
+    return cards
+
 def _make_char(card):
     """ Makes a single character from a card (value,suit) 2-tuple.
     Example use: index = "".join(map(_make_char,seven_cards))
@@ -161,6 +166,9 @@ def _make_char(card):
     return chr(((card[0])<<4)+(card[1]-1))
 
 def make_stringindex(cards):
+    """ Create a compressed character array that represents a hand. Used
+    for the database keys, for instance. Generally, the input cards should
+    be normalize_cards'd first to generate an optimal database key. """
     return "".join([_make_char(c) for c in cards])
     
 try:
@@ -363,12 +371,8 @@ class PokervalReader:
 
     pokervals = None
     def readinpokervals(self):
-        if Hand.pokervals is None:
-            #raise
-            #print "Loading pokervals.p..."
-            #Hand.pokervals = pickle.load(open('5cardpokervals_orderedsuits.p','rb'))
-            Hand.pokervals = shelve.open('pokervals.shelf','r')
-            #print "Done loading pokervals!"
+        if PokervalReader.pokervals is None:
+            PokervalReader.pokervals = shelve.open('pokervals5.shelf','r')
 
     def __init__(self,cards,junk=None):
         self.sethand(cards)
@@ -389,17 +393,13 @@ class PokervalReader:
                 self.cards.append((card[0], card[1]))
             else:
                 raise "illegal card being inserted into hand!",card,h_in
+        self.cards = normalize_cards(self.cards)
 
         self.readinpokervals()
-        self.cards.sort()
-        self.cards = normalize_suits(self.cards)
-        self.cards.sort()
+        
         try:
-            #self.pokerval = Hand.pokervals[calchandint(self.cards)]
             index = make_stringindex(self.cards)
-            #print reverse_stringindex(index)
-            self.pokerval = Hand.pokervals[index]
-            #print "found index: %s, %x"%(format_cards(self.cards),calchandint(self.cards))
+            self.pokerval = PokervalReader.pokervals[index]
         except KeyError:
             self.pokerval = 0
             raise ValueError("dammit, that hand is illegal/couldn't find that index: %s, %x"%(format_cards(self.cards),calchandint(self.cards)))
@@ -432,6 +432,7 @@ def getbesthand(cards):
 
 def open_dbs():
     global pokervals6_db, pokervals7_db
+    import bsddb
     pokervals6_db = shelve.BsdDbShelf(bsddb.hashopen('pokervals6.shelf','r'))
     pokervals7_db = shelve.BsdDbShelf(bsddb.hashopen('pokervals7.shelf','r'))
 
@@ -444,7 +445,6 @@ def close_dbs():
         pokervals7_db.close()
         pokervals7_db = None
     
-
 global pokerval_cache,pokerval_cachehits,pokerval_cachemisses,weightedcomparehands_cache,weightedcomparehands_cachehits
 
 def clear_pokerval_cache():
@@ -1139,6 +1139,7 @@ if __name__ == '__main__':
    
     unittest_comparetwohands()
     import timeit
+    import hotshot, hotshot.stats
     profile=False
     if profile:
         profilefilename = 'poker_unittest.prof'
