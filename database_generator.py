@@ -20,43 +20,25 @@ database_generator.py
     hands and their respective values: pokervals?.shelf for 5, 6, and 7 hands.
 """
 
-if __name__ == '__main__':
-    import logging
-    logging.basicConfig(level=logging.DEBUG)
-
-import poker,pickle,sys,shelve,anydbm,time
+import poker,pickle,sys,shelve,anydbm,time,logging
 from poker_globals import *
 
 global pokerval_cache,pokerval_cachehits,pokerval_cachemisses,weightedcomparehands_cache,weightedcomparehands_cachehits
 
-try:
-	import probstat
-	xuniqueCombinations = probstat.Combination
-except:
-    def xuniqueCombinations(items, n): 
-        if n==0:
-            yield []
-        else:
-            for i in xrange(len(items)-n+1):
-                for cc in xuniqueCombinations(items[i+1:],n-1):
-                    yield [items[i]]+cc
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
 
-def make_char(card):
-    """ Makes a length-1 string from a card.
-    example use: index = "".join(map(make_char,seven_cards))
-    """
-    return chr((card[0]<<4)+card[1])
-
-def clear_pokerval_cache():
+def _clear_pokerval_cache():
     global pokerval_cache,pokerval_cachehits,pokerval_cachemisses,weightedcomparehands_cache,weightedcomparehands_cachehits
     pokerval_cache={}
     weightedcomparehands_cache={}
     pokerval_cachehits=0
     pokerval_cachemisses=0
     weightedcomparehands_cachehits=0
-clear_pokerval_cache()
 
 def calculate_pokerval(_cards):
+    """ Calculate/retrieve a pokerval from a set of 5 or more cards. Also return
+    the 'index' used for db storage. """
     global pokerval_cache,pokerval_cachehits,pokerval_cachemisses
     cards = poker.normalize_cards(_cards)
     try:
@@ -71,10 +53,10 @@ def calculate_pokerval(_cards):
 
         pokerval = 0
         if len(cards) == 5:
-            pokerval = poker.PokervalCalculator(cards).getpokerval()
+            pokerval = poker.CalculatingHand(cards).getpokerval()
         elif len(cards) > 5:
             for fivecards in xuniqueCombinations(cards,5):
-                hand = poker.PokervalReader(fivecards)
+                hand = poker.Hand(fivecards)
                 pokerval = max(pokerval, hand.getpokerval())
         else:
             raise ValueError("Not enough cards!")
@@ -89,7 +71,7 @@ def calculate_pokerval(_cards):
     return index,pokerval
 
 def regenerate_database():
-    """ go thru each possible hand and make a new db with the data items. """
+    """ Go thru each possible hand and make a new db with the data items. """
     deck = []
     for val in range(2,15):
         for suit in range(1,5):
@@ -103,9 +85,7 @@ def regenerate_database():
     
     allCombinations = sum([y[0] for (x,y) in possiblehands.iteritems()])
     
-    print """
-    
-About to generate all 5, 6, and 7 card hands.  It takes a while
+    print """Generating all 5, 6, and 7 card hands.  It takes a while
 (there are %d possible combinations) so find something else to do for a bit.
 If you kill the process at any time, no problem, you can resume it where it left off 
 just by rerunning this method.
@@ -117,7 +97,7 @@ Let's begin...
     for numcards in range(5, 8):
         i = 0
         
-        clear_pokerval_cache()
+        _clear_pokerval_cache()
         start_time = time.clock()
         db = shelve.open("pokervals"+str(numcards)+".shelf",protocol=2)
         try:

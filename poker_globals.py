@@ -303,5 +303,17 @@ def cvt_to_cards(cardstrings):
 
     return cards
 
+try:
+	import probstat
+	xuniqueCombinations = probstat.Combination
+except:
+    def xuniqueCombinations(items, n): 
+        if n==0:
+            yield []
+        else:
+            for i in xrange(len(items)-n+1):
+                for cc in xuniqueCombinations(items[i+1:],n-1):
+                    yield [items[i]]+cc
+
 if __name__=='__main__':
     unittest_rotate_to_start_with()

@@ -28,24 +28,6 @@ log.setLevel(logging.INFO)
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
-try:
-    import psyco
-except ImportError:
-    log.info("Download the 'psyco' Python module for some instant speedups.")
-    pass
-
-try:
-	import probstat
-	xuniqueCombinations = probstat.Combination
-except:
-    def xuniqueCombinations(items, n): 
-        if n==0:
-            yield []
-        else:
-            for i in xrange(len(items)-n+1):
-                for cc in xuniqueCombinations(items[i+1:],n-1):
-                    yield [items[i]]+cc
-
 from poker_globals import *
 
 global pokervals6_db, pokervals7_db
@@ -112,7 +94,7 @@ def getpokerval(_cards,pokerval_db=None):
                 pass
 
             if pokervals6_db is None:
-                open_dbs()
+                _open_dbs()
             if len(index)==5:
                 pokerval = Hand(cards).getpokerval()
             elif len(index)==6:
@@ -120,23 +102,7 @@ def getpokerval(_cards,pokerval_db=None):
             elif len(index)==7:
                 pokerval = pokervals7_db[index]
             else:
-                raise ValueError("what did you call this with? : index=%s, len=%d"%(index,len(index)))
-
-            #~ ### hack cause i messed up low-Ace straights in the generated db
-            #~ if (pokerval & STRAIGHT):
-                #~ if (pokerval & 0xFFFFF) == 0x54321:
-                    #~ if cards[4][0]==6:
-                        #~ if cards[5][0]==7:
-                            #~ pokerval = pokerval - (pokerval & 0xFFFFF) + 0x76543
-                        #~ else:
-                            #~ pokerval = pokerval - (pokerval & 0xFFFFF) + 0x65432
-            #~ elif (pokerval & STRAIGHTFLUSH):
-                #~ if (pokerval & 0xFFFFF) == 0x54321:
-                    #~ if cards[4][0]==6 and cards[4][1]==1:
-                        #~ if cards[5][0]==7 and cards[5][1]==1:
-                            #~ pokerval = pokerval - (pokerval & 0xFFFFF) + 0x76543
-                        #~ else:
-                            #~ pokerval = pokerval - (pokerval & 0xFFFFF) + 0x65432
+                raise ValueError("What did you call this with? : index=%s, len=%d"%(index,len(index)))
 
             pokerval_cache[index] = pokerval
     except KeyError:
@@ -171,6 +137,12 @@ def make_stringindex(cards):
     be normalize_cards'd first to generate an optimal database key. """
     return "".join([_make_char(c) for c in cards])
     
+try:
+    import psyco
+except ImportError:
+    log.info("Download the 'psyco' Python module for some instant speedups.")
+    pass
+
 try:
     psyco.bind(_make_char)    
     psyco.bind(make_stringindex)
@@ -219,14 +191,19 @@ class Pocket:
         return "cards: %s"%(str(self.cards))
 
 
-class PokervalCalculator:
-    """ A set of five cards that calculates a pokerval. """
+class CalculatingHand:
+    """ This class represents one poker hand of five cards.  The getpokerval
+    method calculates a pokerval integer without use of any precomputed 
+    databases.  (The databases are bootstrapped by calls to this class.) """
+    
     def __init__(self,cards,pokerval_to_beat=0):
         self.sethand(cards,pokerval_to_beat)
+        
     def __str__(self):
         pokerval = self.getpokerval()
-        s=format_cards(self.cards) + ' val: '
-        return s+format_pokerval(pokerval)
+        s = format_cards(self.cards) + ' val: '
+        return s + format_pokerval(pokerval)
+        
     def sethand(self,h_in,pokerval_to_beat=0):
         self.precalculated_isstraight = None
         self.precalculated_isflush = None
@@ -235,14 +212,14 @@ class PokervalCalculator:
 
         self.cards = []
         if len(h_in) != 5:
-            raise "Hand can be made only of exactly 5 cards, not %d!"%len(h_in),h_in
+            raise ArgumentError("Hand can be made only of exactly 5 cards, not %d!"%len(h_in))
         for card in h_in:
             if type(card) is list or type(card) is tuple:
                 if len(card)!=2:
-                    raise "wrong number of values in card (should be 2)",card
+                    raise ArgumentError("%d number of values in card (should be 2)"%len(card))
                 self.cards.append((card[0], card[1]))
             else:
-                raise "illegal card being inserted into hand!",card,h_in
+                raise ArgumentError("illegal card being inserted into hand: %s, %s!" % (card,h_in))
         self.cards.sort()
 
         for card in self.cards:
@@ -366,13 +343,14 @@ class PokervalCalculator:
 
         return self.pokerval
 
-class PokervalReader:
-    """ A set of five cards that fetches a pokerval from the precomputed file. """
+class Hand:
+    """ This class represents a 5-card poker hand. The
+    pokerval is looked up from the pokervals5.shelf database."""
 
     pokervals = None
     def readinpokervals(self):
-        if PokervalReader.pokervals is None:
-            PokervalReader.pokervals = shelve.open('pokervals5.shelf','r')
+        if Hand.pokervals is None:
+            Hand.pokervals = shelve.open('pokervals5.shelf','r')
 
     def __init__(self,cards,junk=None):
         self.sethand(cards)
@@ -385,21 +363,21 @@ class PokervalReader:
     def sethand(self,h_in):
         self.cards = []
         if len(h_in) != 5:
-            raise "Hand can be made only of exactly 5 cards, not %d!"%len(h_in),h_in
+            raise ArgumentError("Hand can be made only of exactly 5 cards, not %d!"%len(h_in))
         for card in h_in:
             if type(card) is list or type(card) is tuple:
                 if len(card)!=2:
-                    raise "wrong number of values in card (should be 2)",card
+                    raise ArgumentError("%d number of values in card (should be 2)"%len(card))
                 self.cards.append((card[0], card[1]))
             else:
-                raise "illegal card being inserted into hand!",card,h_in
+                raise ArgumentError("illegal card being inserted into hand: %s, %s!" % (card,h_in))
         self.cards = normalize_cards(self.cards)
 
         self.readinpokervals()
         
         try:
             index = make_stringindex(self.cards)
-            self.pokerval = PokervalReader.pokervals[index]
+            self.pokerval = Hand.pokervals[index]
         except KeyError:
             self.pokerval = 0
             raise ValueError("dammit, that hand is illegal/couldn't find that index: %s, %x"%(format_cards(self.cards),calchandint(self.cards)))
@@ -408,35 +386,30 @@ class PokervalReader:
     def getpokerval(self):
         return self.pokerval
 
-#Hand = PokervalCalculator
-Hand = PokervalReader
-
 def getbesthand(cards):
     """ Return the best Hand possible from a list of cards. """
+    
     if len(cards)<5:
         return None
 
     maxpokervalue = 0
     bestpokerhand = None
     for cardset in xuniqueCombinations(cards,5):
-        #print enemy_pokerval, maxpokervalue
         hand = Hand(cardset,maxpokervalue)
-        #print hand,
         curpokervalue = hand.getpokerval()
-        #print curpokervalue
         if curpokervalue > maxpokervalue:
             maxpokervalue = curpokervalue
             bestpokerhand = hand
 
     return bestpokerhand
 
-def open_dbs():
+def _open_dbs():
     global pokervals6_db, pokervals7_db
     import bsddb
     pokervals6_db = shelve.BsdDbShelf(bsddb.hashopen('pokervals6.shelf','r'))
     pokervals7_db = shelve.BsdDbShelf(bsddb.hashopen('pokervals7.shelf','r'))
 
-def close_dbs():
+def _close_dbs():
     global pokervals6_db, pokervals7_db
     if pokervals6_db is not None:
         pokervals6_db.close()
@@ -463,14 +436,11 @@ def isstraight(_cards):
     return (STRAIGHT & pv)>0
 
 def isbetterhand(cards,enemy_pokerval):
-    """ Are my 5,6, or 7 cards better than enemy_pokerval? """
+    """ Are my 5, 6, or 7 cards better than enemy_pokerval? """
 
     for cardset in xuniqueCombinations(cards,5):
-        #print enemy_pokerval, maxpokervalue
         hand = Hand(cardset,enemy_pokerval)
-        #print hand,
         curpokervalue = hand.getpokerval()
-        #print curpokervalue > enemy_pokerval, cardset, "%s v. %s"%(format_pokerval(curpokervalue) ,format_pokerval(enemy_pokerval) )
         if curpokervalue > enemy_pokerval:
             return True
 
@@ -546,8 +516,9 @@ def nhands(mycards,commoncards):
 
     return (nhandshi, nhandslo, nhandsti)
 
-# calculates odds that we can win a showdown right now against a provided # of players if they have random hands
 def prwinnow(nhandshi,nhandslo,nhandsti,nopponentsplaying=1):
+    """ Calculates odds that we can win a showdown right now against a provided 
+    # of players if they have random hands. """
     nhands = nhandshi+nhandslo+nhandsti
     if (nhands<=0):
         raise "Invalid call of prwinnow, nhands:%d"%(nhands)
@@ -611,146 +582,6 @@ def comparehands(mycards,enemiescards,commoncards,force_unweighted=False):
     else:
         raise "too many common cards!",commoncards
 
-def weightedcomparehands_threadedattempt(mycards,enemiescards,commoncards,pokerval_db=None):
-    """ Are my 2 cards better than his 2 (estimated) cards
-    given 3, 4, or 5 common cards? Return the expected win %
-    (money_made / total_wagered) """
-    #log.info("comparehands: %s vs. %s common %s"%(format_cards(mycards),format_cards(enemiescards),format_cards(commoncards)))
-
-    # check to see if it's a single enemy, then make it a list...
-    if enemiescards is None or len(enemiescards)==0:
-        return None
-
-    global weightedcomparehands_cache,weightedcomparehands_cachehits
-
-    weightedcomparehands_cache_index = pickle.dumps((mycards,enemiescards,commoncards),2)
-    try:
-        winpct = weightedcomparehands_cache[weightedcomparehands_cache_index]
-        weightedcomparehands_cachehits+=1
-        return winpct
-    except KeyError:
-        pass
-
-    if type(enemiescards[0][0]) is int:
-        enemiescards = [enemiescards,]
-
-    for e in enemiescards:
-        for (i,c) in enumerate(e):
-            e[i]=(c[0],c[1]) # make sure it's a tuple
-
-    #print "comparehands: %s vs. %s common %s"%(str(mycards),str(enemiescards),str(commoncards))
-
-    # make deck
-    deck = []
-    for val in range(2,15):
-        for suit in range(1,5):
-            if (((val, suit) not in mycards) and
-                ((val, suit) not in commoncards)):
-                throwout=False
-                for hiscards in enemiescards:
-                    if (val,suit) in hiscards:
-                        throwout=True
-                        break
-                if not throwout:
-                    deck.append((val,suit))
-    winsatturn = winsatriver = wins = 0.
-    total_turn_cnt = total_cnt = 0.
-    # umm..
-
-    def calc_thread(result,mycards,enemiescards,commoncards,potentialfirstcard):
-        result['winsatturn'] = 0.
-        result['winsatriver'] = 0.
-        result['total_cnt'] = 0.
-
-        allmycards = copy.copy(mycards)
-        allmycards.extend(commoncards)
-        allmycards.append(potentialfirstcard)
-        alltheircards = []
-
-        for hiscards in enemiescards:
-            allhiscards = copy.copy(hiscards)
-            allhiscards.extend(commoncards)
-            allhiscards.append(potentialfirstcard)
-            alltheircards.append(allhiscards)
-
-        #mybest6 = getbesthand(allmycards).getpokerval()
-
-        mybest6 = getpokerval(allmycards)
-        hisbest6 = 0.
-        for allhiscards in alltheircards:
-            #print format_cards(allhiscards), alltheircards
-            #hisbest6 = max(hisbest6,getbesthand(allhiscards).getpokerval())
-            hisbest6 = max(hisbest6,getpokerval(allhiscards))
-
-        if mybest6 > hisbest6:
-            winner6 = 1.
-        elif mybest6 < hisbest6:
-            winner6 = 0.
-        else:
-            winner6 = .5
-        #print "potentials: %s %d\nme  %s\nhim %s"%(str((potentialfirstcard,None)), winner6, getbesthand(allmycards),getbesthand(allhiscards))
-        result['winsatturn'] += winner6
-        #~ total_turn_cnt += 1
-
-        for (j,potentialsecondcard) in enumerate(deck[i+1:]):
-            #print len(deck), len(deck[i+1:])
-
-            allmycards = copy.copy(mycards)
-            allmycards.extend(commoncards)
-            allmycards.extend((potentialfirstcard,potentialsecondcard))
-            alltheircards = []
-
-            for hiscards in enemiescards:
-                allhiscards = copy.copy(hiscards)
-                allhiscards.extend(commoncards)
-                allhiscards.extend((potentialfirstcard,potentialsecondcard))
-                alltheircards.append(allhiscards)
-
-            ###mybest = getbesthand(allmycards).getpokerval()
-            mybest = getpokerval(allmycards,pokerval_db)
-            hisbest = 0.
-            for allhiscards in alltheircards:
-                #print format_cards(allhiscards), alltheircards
-                ###hisbest = max(hisbest,getbesthand(allhiscards).getpokerval())
-                hisbest = max(hisbest,getpokerval(allhiscards,pokerval_db))
-
-            if mybest > hisbest:
-                winner = 1.
-            elif mybest < hisbest:
-                winner = 0.
-            else:
-                winner = .5
-
-            #print "potentials: %s %d\nme  %s\nhim %s"%(str((potentialfirstcard,potentialsecondcard)), winner, getbesthand(allmycards),getbesthand(allhiscards))
-            result['winsatriver'] += winner
-            result['total_cnt'] += 1
-
-    mythreads = []
-    for (i,potentialfirstcard) in enumerate(deck):
-        #print len(deck), len(deck[i+1:])
-        result = {}
-        athread = threading.Thread(target=calc_thread,args=(result,mycards,enemiescards,commoncards,potentialfirstcard))
-        athread.start()
-        mythreads.append([athread,result])
-        #print "potentials: %s %d\nme  %s\nhim %s"%(str((potentialfirstcard,potentialsecondcard)), winner, getbesthand(allmycards),getbesthand(allhiscards))
-
-    for (th,result) in mythreads:
-        #print "waiting to join",
-        th.join()
-        #print "joined",total_turn_cnt
-        winsatriver += result['winsatriver']
-        winsatturn += result['winsatturn']
-        total_cnt += result['total_cnt']
-        total_turn_cnt += 1
-
-    winpct = (float(winsatturn)/total_turn_cnt)*.75 + (float(winsatriver)/total_cnt*.25)
-
-    #print "FINAL: ",total_cnt,"%.4f"%tempwinpct
-    #print money,total_cnt
-    #print "winpct: on turn %f, on river %f, blended %f"%(float(winsatturn)/total_turn_cnt,float(winsatriver)/total_cnt,winpct)
-    weightedcomparehands_cache[weightedcomparehands_cache_index] = winpct
-    return winpct
-
 def weightedcomparehands(mycards,enemiescards,commoncards,pokerval_db=None,turn_weight=0.75):
     """ Are my 2 cards better than his 2 (estimated) cards
     given 3 common cards? Return the expected win %
@@ -795,10 +626,9 @@ def weightedcomparehands(mycards,enemiescards,commoncards,pokerval_db=None,turn_
                         break
                 if not throwout:
                     deck.append((val,suit))
+                    
     winsatturn = winsatriver = wins = 0.
     total_turn_cnt = total_cnt = 0.
-    # umm..
-
 
     for (i,potentialfirstcard) in enumerate(deck):
 
@@ -818,8 +648,6 @@ def weightedcomparehands(mycards,enemiescards,commoncards,pokerval_db=None,turn_
 
         for (j,potentialsecondcard) in enumerate(deck[i+1:]):
             #print len(deck), len(deck[i+1:])
-
-            ###mybest = getbesthand(allmycards).getpokerval()
             mybest = getpokerval(mycards + commoncards + [potentialfirstcard,potentialsecondcard],pokerval_db)
             theirbest = max([getpokerval(hiscards + commoncards + [potentialfirstcard,potentialsecondcard],pokerval_db) for hiscards in enemiescards])
 
@@ -831,16 +659,9 @@ def weightedcomparehands(mycards,enemiescards,commoncards,pokerval_db=None,turn_
                 winner = .5
 
             #print "potentials: %s %d\nme  %s\nhim %s"%(str((potentialfirstcard,potentialsecondcard)), winner, getbesthand(allmycards),getbesthand(allhiscards))
-
-            #money += winner*.25 + winner6*.75
             winsatriver += winner
             total_cnt += 1
-            #tempwinpct = (float(winsatturn)/total_turn_cnt)*.75 + (float(winsatriver)/total_cnt*.25)
-            #if (int(total_cnt) % 100)==0:
-            #    print total_cnt,"%.4f"%tempwinpct
 
-    #print "FINAL: ",total_cnt,"%.4f"%tempwinpct
-    #print money,total_cnt
     winpct = (float(winsatturn)/total_turn_cnt)*turn_weight + (float(winsatriver)/total_cnt*(1.0-turn_weight))
     #print "winpct: on turn %f, on river %f, blended %f"%(float(winsatturn)/total_turn_cnt,float(winsatriver)/total_cnt,winpct)
     weightedcomparehands_cache[weightedcomparehands_cache_index] = winpct
@@ -886,73 +707,58 @@ return below.  There's 18424 possibilities just for 4 cards..."""
     return float(winner_cnt) / float(total_cnt)
 
 def normalize_suits(cards):
-    """ Take a sequence of cards and change their suits so that the first suit encountered is always 0,
-    and the next suit is 1, etc... an optimization to shrink the size of the possible hands...
+    """ Take a sequence of cards and change their suits so that the first suit encountered 
+    is always 0, and the next suit is 1, etc... This is an optimization to shrink the size of the 
+    possible hands.
     """
-    #st = time.clock()
-    if len(cards)==7:
-        # check for flushability, if none, set suits to ccchhhh otherwise set flush suit to c and others to h
 
-        suitcount = [0,0,0,0]
-        for (rank,suit) in cards:
-            suitcount[suit-1]+=1
-        flushable_suit = None
-        for (suitminus1,cnt) in enumerate(suitcount):
-            if cnt>=5:
-                flushable_suit = suitminus1+1
-                break
-        newcards = []
+    # check for flushability, if none, set suits to ccchhhh otherwise set flush suit to c and others to h
+    suitcount = [0,0,0,0]
+    for (rank,suit) in cards:
+        suitcount[suit-1]+=1
+    flushable_suit = None
+    for (suitminus1,cnt) in enumerate(suitcount):
+        if cnt>=5:
+            flushable_suit = suitminus1+1
+            break
+    newcards = []
+    
         #print "7cardbefore",flushable_suit, cards, suitcount
-        if flushable_suit is None:
-            i=0
-            for (rank,suit) in cards:
-                newcards.append((rank,(i%4)+1))
-                i+=1
-            #print "a",newcards
-            return newcards
-        else:
-            lastsuitused=0
-            flushnewsuit = None
-            for (rank,suit) in cards:
-                if suit == flushable_suit:
-                    if flushnewsuit is None:
-                        lastsuitused+=1
-                        flushnewsuit = lastsuitused
-                    newsuit = flushnewsuit
-                else:
-                    lastsuitused+=1
-                    newsuit = lastsuitused
-                newcards.append((rank,newsuit)) # should i plus1 to the newsuit? this is illegal 0-3 range but ...
-            #print "b",newcards
-            return newcards
-
-    else:
-        newsuit = {}
-        lastsuitused=0
+    if flushable_suit is None:
+        i=0
         for (rank,suit) in cards:
-            if not newsuit.has_key(suit):
+            newcards.append((rank,(i%4)+1))
+            i+=1
+        return newcards
+    else:
+        lastsuitused=0
+        flushnewsuit = None
+        for (rank,suit) in cards:
+            if suit == flushable_suit:
+                if flushnewsuit is None:
+                    lastsuitused+=1
+                    flushnewsuit = lastsuitused
+                newsuit = flushnewsuit
+            else:
                 lastsuitused+=1
-                newsuit[suit] = lastsuitused
-        #print "before",cards,newsuit
-        newcards = []
-        for card in cards:
-            newcards.append((card[0],newsuit[card[1]]))
-        #print "after",newcards
-
+                newsuit = lastsuitused
+            newcards.append((rank,newsuit)) # should i plus1 to the newsuit? this is illegal 0-3 range but ...
         return newcards
 
+
 def calchandint(five_cards):
+    """ Make a 32 bit integer that represents a five card hand. 4 bits per value, 
+    2 for the suit, so 6 bits per card.  6*5 == 30 bits used.
+    represents one card. """
     handint = 0
-    #print five_cards
     newfive = normalize_suits(five_cards)
-    #newfive = five_cards
-    #print five_cards,newfive
     for c in newfive:
         n = (c[0] << 2) | (c[1]-1)
         handint = (handint<<6) | n
     return handint
 
 def enumall5cardhands():
+    """ Debug method that will write all five card hands to an output file. """
     deck = []
     for val in range(2,15):
         for suit in range(1,5):
@@ -965,7 +771,7 @@ def enumall5cardhands():
         cnt = cnt+1
         handint = calchandint(five_cards)
         if not allhands.has_key(handint):
-            hand = PokervalCalculator(five_cards)
+            hand = CalculatingHand(five_cards)
             pokerval = hand.getpokerval()
 
             allhands[handint] = pokerval
@@ -998,50 +804,8 @@ try:
 except:
     pass
 
-def unittest_speed():
-    print "1"
-    print weightedcomparehands([(13, 3), (10, 3)], [[10, 2], [14, 1]] ,[(2, 2), (6, 3), (10, 1)])
-    start_time = time.clock()
-    print "2"
-    print weightedcomparehands([(13, 3), (10, 3)], [[10, 2], [14, 1]] ,[(2, 2), (6, 3), (10, 1)])
-    print "4"
-    print weightedcomparehands([(12,1),(13,3)],[(9,1),(10,3)],[(3,2),(9,3),(12,2)])
-    print "5"
-    print weightedcomparehands([(12,1),(13,3)],[(3,1),(5,2)],[(3,2),(9,3),(12,2)])
-    print "took %f seconds"%(time.clock()-start_time)
-                
-def unittest_calchandint():
-    print calchandint([(5,2),(6,2),(7,2),(5,3),(2,2)])
-
-def unittest_isstraight():
-    print isstraight([(5,2),(6,2),(7,2),(5,3),(2,2),(8,2)])
-    print isstraight([(5,2),(6,2),(7,2),(4,3),(2,2),(8,0)])
-    print isstraight([(14,2),(2,2),(3,2),(5,3),(4,2),(8,0),(10,0)])
-    print isstraight([(5,2),(6,2),(7,2),(5,3),(2,2),(8,0)])
-
-def unittest_nhands():
-    commoncards = cvt_to_cards(["Kd","7s","2c"])
-    print "Commoncards:",format_cards(commoncards)
-    nh = nhands(cvt_to_cards(["As","Kc"]),commoncards)
-    print "AK:",nh,prwinnow(nh[0],nh[1],nh[2])
-    nh = nhands(cvt_to_cards(["Kc","Qd"]),commoncards)
-    print "KQ:",nh,prwinnow(nh[0],nh[1],nh[2])
-    nh = nhands(cvt_to_cards(["Kc","4h"]),commoncards)
-    print "K4:",nh,prwinnow(nh[0],nh[1],nh[2])
-    nh = nhands(cvt_to_cards(["7c","Ah"]),commoncards)
-    print "A7:",nh,prwinnow(nh[0],nh[1],nh[2])
-    commoncards = cvt_to_cards(["9d","7s","2c"])
-    print "Commoncards:",format_cards(commoncards)
-    nh = nhands(cvt_to_cards(["As","9c"]),commoncards)
-    print "A9:",nh,prwinnow(nh[0],nh[1],nh[2])
-    nh = nhands(cvt_to_cards(["Td","9c"]),commoncards)
-    print "T9:",nh,prwinnow(nh[0],nh[1],nh[2])
-    nh = nhands(cvt_to_cards(["3d","9c"]),commoncards)
-    print "93:",nh,prwinnow(nh[0],nh[1],nh[2])
-    nh = nhands(cvt_to_cards(["Ac","7h"]),commoncards)
-    print "A7:",nh,prwinnow(nh[0],nh[1],nh[2])
-
 import unittest
+
 class Test_getpokerval(unittest.TestCase):
     
     def setUp(self):
@@ -1066,10 +830,53 @@ class Test_pokerModule(unittest.TestCase):
         clear_pokerval_cache()
         
     def assert_isClose(self,val,expected,thresh=0.00001):
-        if abs(val-expected) < thresh:
-            return True
-        else:
-            return False
+        self.assertTrue((val-expected) < thresh)
+            #~ return True
+        #~ else:
+            #~ return False
+
+    def test_speed(self):
+        print "1"
+        print weightedcomparehands([(13, 3), (10, 3)], [[10, 2], [14, 1]] ,[(2, 2), (6, 3), (10, 1)])
+        start_time = time.clock()
+        print "2"
+        print weightedcomparehands([(13, 3), (10, 3)], [[10, 2], [14, 1]] ,[(2, 2), (6, 3), (10, 1)])
+        print "4"
+        print weightedcomparehands([(12,1),(13,3)],[(9,1),(10,3)],[(3,2),(9,3),(12,2)])
+        print "5"
+        print weightedcomparehands([(12,1),(13,3)],[(3,1),(5,2)],[(3,2),(9,3),(12,2)])
+        print "took %f seconds"%(time.clock()-start_time)
+                    
+    def test_calchandint(self):
+        self.assertEqual(calchandint([(5,2),(6,2),(7,2),(5,3),(2,2)]), 341951816)
+
+    def test_isstraight(self):
+        self.assertFalse(isstraight([(5,2),(6,2),(7,2),(5,3),(2,2),(8,2)]))
+        self.assertTrue(isstraight([(5,2),(6,2),(7,2),(4,3),(2,2),(8,0)]))
+        self.assertTrue(isstraight([(14,2),(2,2),(3,2),(5,3),(4,2),(8,0),(10,0)]))
+        self.assertFalse(isstraight([(5,2),(6,2),(7,2),(5,3),(2,2),(8,0)]))
+
+    def test_nhands(self):
+        commoncards = cvt_to_cards(["Kd","7s","2c"])
+        print "Commoncards:",format_cards(commoncards)
+        nh = nhands(cvt_to_cards(["As","Kc"]),commoncards)
+        print "AK:",nh,prwinnow(nh[0],nh[1],nh[2])
+        nh = nhands(cvt_to_cards(["Kc","Qd"]),commoncards)
+        print "KQ:",nh,prwinnow(nh[0],nh[1],nh[2])
+        nh = nhands(cvt_to_cards(["Kc","4h"]),commoncards)
+        print "K4:",nh,prwinnow(nh[0],nh[1],nh[2])
+        nh = nhands(cvt_to_cards(["7c","Ah"]),commoncards)
+        print "A7:",nh,prwinnow(nh[0],nh[1],nh[2])
+        commoncards = cvt_to_cards(["9d","7s","2c"])
+        print "Commoncards:",format_cards(commoncards)
+        nh = nhands(cvt_to_cards(["As","9c"]),commoncards)
+        print "A9:",nh,prwinnow(nh[0],nh[1],nh[2])
+        nh = nhands(cvt_to_cards(["Td","9c"]),commoncards)
+        print "T9:",nh,prwinnow(nh[0],nh[1],nh[2])
+        nh = nhands(cvt_to_cards(["3d","9c"]),commoncards)
+        print "93:",nh,prwinnow(nh[0],nh[1],nh[2])
+        nh = nhands(cvt_to_cards(["Ac","7h"]),commoncards)
+        print "A7:",nh,prwinnow(nh[0],nh[1],nh[2])
 
     def test_comparetwohands(self):
         self.assert_isClose(0,comparehands([(14,1), (3,1)],[(3,3), (6,1)],[(5,2), (4,2), (2,3), (14,4), (13,4)]) )
@@ -1133,26 +940,4 @@ class Test_pokerModule(unittest.TestCase):
 if __name__ == "__main__":
     import doctest
     doctest.testmod()    
-    
-if __name__ == '__main__':
     unittest.main()
-   
-    unittest_comparetwohands()
-    import timeit
-    import hotshot, hotshot.stats
-    profile=False
-    if profile:
-        profilefilename = 'poker_unittest.prof'
-        prof = hotshot.Profile(profilefilename)
-        print "profiling"
-        prof.start()
-
-    t = timeit.Timer("unittest_nhands()", "from __main__ import unittest_nhands")
-    iters = 10
-    print "test: %.2f msec/pass" % (1000 * t.timeit(number=1)/8)
-
-    if profile:
-        prof.close()
-        stats = hotshot.stats.load(profilefilename)
-        stats.sort_stats('time', 'calls')
-        stats.print_stats(30)
